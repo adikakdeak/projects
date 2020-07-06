@@ -7,6 +7,11 @@ Summary:
 - handling special and missing values, 
 - identifying outliers and dealing accordingly with them. 
 
+Input files:
+- species.csv
+- surveys.csv
+- WHO.csv
+
 Code.rmd: 
 This file contains the R codes.
 
