@@ -16,4 +16,4 @@ Code.rmd:
 This file contains the R codes.
 
 Report.html: 
-This file contains detailed description of every steps perfeormed along with the respective outputs.
+This file contains detailed description of every steps performed along with the respective outputs.
