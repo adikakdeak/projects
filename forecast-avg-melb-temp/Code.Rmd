@@ -1,0 +1,1376 @@
+---
+title: "MATH1318, Semester 1 2020, Final Project"
+author: "Sahil Gupta (s3803839), Aditya Kakde (s3778500)"
+subtitle: Time Series Analysis for Melbourne Temperature Data
+output:
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_depth: 5
+  html_notebook:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 5
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE,
+	fig.align = "center",
+	message = FALSE,
+	warning = FALSE
+)
+
+```
+
+***
+
+# Introduction
+
+In this report, we will be analyzing the time series for Melbourne Average Monthly temperatures. The purpose of this analysis is to come up with a suitable model which can capture as much of the behaviour of this time series as possible. Then using this model, we will be forecasting the average temperature of Melbourne for next 10 months.
+
+We will start by performing a descriptive analysis on this time series. After this analysis, we will comment on which model would be suitable to use out of deterministic and stochastic. After deciding the model and effectively the direction of our analysis, we will try and come up with candidate models to capture the behaviour of this time series. This will be followed by performing diagnostic checks on each candidate model. Diagnostic checks will include estimating the parameters and analyzing the residuals for each model.
+
+Once the model has been finalized, we will use this model to forecast average temperature for next 10 months. We would end this report by commenting on the forecast and analysing the goodness of fit for the chosen model.
+
+***
+
+# Method
+
+While performing the analysis for this time series, we will be using R language to implement all the required tests and techniques. Also, we will be using respective packages in R to plot all the required plots and the time series. Using RMarkdown, we will be capturing all the findings and results from our analysis.
+
+The packages required for this analysis would be as follows:
+
+* dplyr
+* tidyselect
+* knitr
+* timeSeries
+* fUnitRoots
+* TSA
+* lmtest
+* forecast
+* tseries
+* FitAR
+* FSAdata
+
+We would also be using a user-defined function sort.score.R().
+
+```{r, echo=FALSE}
+
+library(dplyr)
+library(tidyselect)
+library(knitr)
+library(timeSeries)
+library(fUnitRoots)
+library(TSA)
+library(lmtest)
+library(forecast)
+library(tseries)
+library(FitAR)
+library(FSAdata)
+
+source('sort.score.R')
+
+```
+
+***
+
+# Data
+
+We will extract the time series from a csv file. This file has been downloaded from [here](https://new.censusatschool.org.nz/resource/time-series-data-sets-2013/). This file contains monthly minimum and maximum temperatures recorded for multiple cities. We have the temperatures from January 2000 to October 2012.
+
+```{r, echo=FALSE}
+
+#import data 
+melbTemp <- read.csv("TempWorld2.csv") 
+
+#display first 5 rows in the data
+head(melbTemp)
+
+```
+
+
+As we have the monthly minimum and maximum temperature values, it would be a good idea to compute the mean temperature of each month for Melbourne. This mean value will be a good representation for variation of Melbourne temperatures across the year.
+
+
+```{r, echo=FALSE}
+
+#compute mean 
+melbTemp$MelbourneAvg <- (melbTemp$Melbournemax + melbTemp$MelbourneMin)/2 
+
+#display computed mean 
+head(melbTemp[, c('Date', 'MelbourneMin', 'Melbournemax', 'MelbourneAvg')])
+
+```
+
+
+As we are using R, all the required data is present in a data frame.
+
+For us to carry out the analysis, we need to convert this data into a time series.
+
+
+```{r, echo=FALSE}
+
+#convert to time series 
+tempAvg <- ts(as.vector(melbTemp$MelbourneAvg), start=2000, frequency = 12) 
+
+#display time series data 
+tempAvg
+
+```
+
+```{r, echo=FALSE}
+
+#check dataype for time series data
+class(tempAvg)
+
+```
+
+
+Now that we have the time series ready at our disposal, we will start by plotting this time series and performing the descriptive analysis.
+
+***
+
+# Descriptive Analysis
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), las = 1, cex.main = 0.85, cex.lab = 0.85, cex.axis = 0.85)
+
+#plot time series
+plot(tempAvg, type="o", col = "red", lwd = 1.5,
+     xlab = "Years",
+     ylab = "Average Melbourne Temperature (in Degree Celsius)", 
+     main = "Time Series plot of Average Melbourne Temperature (with months as points)")
+points(y = tempAvg, x = time(tempAvg), pch = as.vector(season(tempAvg)))
+
+```
+
+After plotting all the temperature values, we get the above time series. All the points represent temperature values for corresponding months. We can see that usually the temperatures are highest in January and February. Likewise, the temperatures are lowest in the months of June, July, and August. This pattern repeats itself across the entire time series. The basic properties for this time series would be:
+
+1. **Trend:** At first glance, we cannot see any particular trend. We cannot be sure about this right now as the time series shows repeating patterns.
+2. **Change in Variance:** Looking at the time series, the variance seems to change at around 2002 and again at around 2006. Again, we cannot be sure because of the repeating pattern in this time series.
+3. **Seasonality:** Because of the repeating patterns, the time series strongly demonstrates the presence of seasonality.
+4. **Behavior:** This time series seems to follow an auto-regressive behavior.
+5. **Intervention Point:** In this time series, we cannot see any point beyond which the time series has changed drastically. So, we can say there is no intervention point in this time series.
+
+Now that we have a basic understanding about the time series, we will plot the ACF(Auto Correlation Function) plot and PACF(Partial ACF) plot to analyze the presence of seasonality.
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,2), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot ACF
+acf(tempAvg, main = "ACF: Average Melbourne Temperature", lag.max = 36)
+
+#plot PACF
+pacf(tempAvg, main = "PACF: Average Melbourne Temperature", lag.max = 36)
+```
+
+From the ACF plot, at lag 1, 2 and 3, we can see the repeating pattern which are significant. This demonstrates presence of seasonality in the time series. We cannot comment on the presence of trend from this plot due to seasonality. We can check for it once the seasonal component has been removed from the above plot.
+
+We will now check if there is any correlation between the adjacent points in the time series.
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), las = 1, cex.main = 0.85, cex.lab = 0.85, cex.axis = 0.85)
+
+#plot scatter plot
+plot(y = tempAvg, x = zlag(tempAvg), col = "red",
+     xlab = 'Lagged Average Melbourne Temperature (in Degree Celsius)',
+     ylab = 'Average Melbourne Temperature (in Degree Celsius)',
+     main = 'Scatter plot of Average Melbourne Temperature (in Degree Celsius)')
+
+```
+
+```{r, echo=FALSE}
+
+#Reading the average temperature data into y
+y = tempAvg          
+
+#Generating first lag of the average temperature series
+x = zlag(tempAvg)  
+
+#Creating an index to get rid of the first NA value in x
+index = 2:length(x)  
+
+#Calculating the correlation between numerical values in x and y
+cor(y[index],x[index])      
+
+```
+
+From the above scatter plot and the output, there is a strong correlation between adjacent points of this time series. This suggests a strong autocorrelation, which means, the temperature value of previous months affect the temperature value for current month.
+
+***
+
+# Deterministic Model: Seasonal
+
+Now that we have got an understanding about the time series, we will start by applying a deterministic seasonal model. This is a regression approach where; we try to find a model which computes the dependent variable based on independent variables. While using the deterministic model, one crucial assumption to be made is that the data does not have any random component.
+
+When we apply the seasonal model on our time series, we get below result:
+
+```{r, echo=FALSE}
+
+#identify season
+month. = season(tempAvg) 
+
+#fit the model
+seasonal_model = lm( tempAvg ~ month.-1)
+
+#print model summary
+summary(seasonal_model)
+
+```
+
+From the above results, we can see that co-efficients for all the independent variables are significant. We also got an unrealistic high R-squared value of 0.9961. This value basically represents the amount of variation explained by the model. In our case, the seasonal model explains 99.61% of the variation.
+
+When we try and fit this model on our time series, we get below results:
+
+```{r}
+
+#set the frame
+par(mar=c(5,4,4,2), las = 1, cex.main = 0.85, cex.lab = 0.85, cex.axis = 0.85)
+
+#fit the seasonal model
+plot(ts(fitted(seasonal_model), freq=12, start=2000),
+        xlab = 'Years',
+        ylab = 'Average Melbourne Temperature (in Degree Celsius)',
+        type = 'l',
+        ylim = range(c(fitted(seasonal_model), tempAvg)),
+        main = "Fitted Seasonal Model to Average Melbourne Temperature Time Series",
+     col = "blue",  lwd = 1.5)
+points(tempAvg)
+
+```
+
+From the above plot, the model seems to be overfitted.
+
+Now, looking at the assumption for Deterministic Models, the data should not have any random component. We cannot assure this condition on our data because we need to consider the natural variations in temperature which definitely have a strong random component. Also, when we look at the R-squared value and the fitted model, the seasonal model overfits our time series which is not really favourable.
+
+Because of these reasons, we will not be using this model for forecasting.
+
+We will now see how the stochastic seasonal model fits our time series.
+
+# Stochastic Models: SARIMA
+
+Stochastic models are known to capture all the components in a time series. These components include the auto-regressive component, moving-average component, seasonal component, and the random component. The stochastic models are denoted as SARIMA(p, d, q)X(P, D, Q)_s. SARIMA stands for Seasonal Auto-Regressive Integrated Moving Average. p, d and q represent the parameters for the ordinary(non-seasonal) component and P, D and Q represent parameters for the seasonal model.
+
+Our aim here would be to come up with appropriate values for parameters p, d, q, P, D and Q which would give us the most optimal model. We will start by finding the values for seasonal parameters P, D and Q.
+
+## Handling Seasonal Component
+
+We are considering seasonal component in the beginning because, after handling and eliminating this component, we would be able to analyze the remaining components effectively.
+
+### Eliminating Seasonality
+
+To eliminate the seasonal component, we will perform seasonal differencing. As this would be our first differencing, the value of D would be 1. We might need to perform second differencing after analysing the effects of 1st differencing.
+
+```{r, echo=FALSE}
+
+#perform 1st differencing
+m1_temp = arima(tempAvg, order=c(0,0,0), seasonal=list(order=c(0,1,0), period = 12))
+
+#extract residuals
+res_m1_temp = residuals(m1_temp);  
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,1), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot the time series for residuals
+plot(res_m1_temp, type="o", col = "red", lwd = 1.5,
+     xlab = 'Years',
+     ylab = 'Residuals',
+     main = "Time Series plot for residuals of Average Melbourne Temperature")
+
+```
+
+Looking at the above output, this is the time series which is left out after eliminating the seasonality. Here we can see that there is no trend in the time series. We can see change in variance, but we will look at this in coming sections. Also, the series exhibits a moving average behaviour where the values seem to be fluctuating around the mean of 0.
+
+Now, to find possible values for P and Q, we will plot the Auto-Correlation Function(ACF) and Partial ACF(PACF) plots.
+
+### Defining Seasonal Parameters: P, Q
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,2), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot ACF
+acf(res_m1_temp, lag.max = 36, main = "ACF: Residuals of Average Melbourne Temperature")
+
+#plot PACF
+pacf(res_m1_temp, lag.max = 36, main = "PACF: Residuals of Average Melbourne Temperature")
+
+```
+
+Looking at the ACF plot, for lag 1, 2 and 3 where the seasonality is represented, we have significant value only at lag 1. So, from this ACF plot, we get the value for Q as 1.
+
+When we look at the PACF plot, again for lag 1, 2 and 3, where the seasonality is represented, we have significant values for all the lags under consideration. But when we look closely, there is a decreasing pattern for these values. In such situations where we see a trend, we can assume that there is no significant seasonal autoregressive component present. So, the value for P would be 0.
+
+Now, we have the values for seasonal P, D and Q, which are, 0, 1 and 1, respectively. We will now use these values to capture and eliminate the seasonality. We will plot and check the remaining time series which does not have any seasonality and also check the ACF and PACF plots for the same.
+
+```{r, echo=FALSE}
+
+#apply seasonal (0, 1, 1) model to capture seasonality
+m2_temp = arima(tempAvg, order=c(0,0,0), seasonal=list(order=c(0,1,1), period = 12))
+
+#capture remaining components other than seasonality
+res_m2_temp = residuals(m2_temp);  
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,1), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot the time series for remaining components
+plot(res_m2_temp, type="o", col = "red", lwd = 1.5,
+     xlab = 'Years',
+     ylab = 'Residuals',
+     main = "Time series plot of Average Melbourne Temperature after Removing Seasonality")
+
+```
+
+We get the above times series after removing seasonality. We will be using this series to estimate the parameters for non-seasonal component.
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,2), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot ACF
+acf(res_m2_temp, lag.max = 36, main = "ACF: After Removing Seasonality")
+
+#plot PACF
+pacf(res_m2_temp, lag.max = 36, main = "PACF: After Removing Seasonality")
+
+```
+
+Looking at both ACF and PACF plots, there are no significant values at lag 1, 2 or 3. This means that the seasonal component has been completely removed.
+
+## Model Estimation for non-Seasonal Component
+
+Now that we have taken care of the seasonality, we can analyze the lags which are before lag 1. These lags represent the non-seasonal component. In the previous ACF and PACF plot, looking at the values for lags before lag 1, we do not see any specific pattern. Also, after first lag, there is drop in the values, which indicates there is no trend. So, we can say that the remaining time series is stationary, but, we need to first confirm this using a hypothesis test. This condition of stationarity would be our requirement to estimate the parameters.
+
+So, to confirm if this series is stationary or not, we will perform the Augmented Dickey Fuller test.
+
+### ADF Test
+
+The Dickey-Fuller unit-root test is used to test the null hypothesis that the process is difference nonstationary (the process is nonstationary but becomes stationary after first differencing). The alternative hypothesis is that the process is stationary. The hypothesis test is given as follows:
+
+  $$ H_0:  Process \space is \space Difference \space Non-Stationary $$
+
+  $$ H_A:  Process \space is \space Stationary $$
+
+Decision Rules:
+
+* Reject,
+   - if p-value < 0.05 ( significance level) (as we have a very small data that is why we are taking a bigger significance level just to be sure)
+   - if 95% CI of the parameter does not capture $H_0$.
+* Otherwise, fail to reject $H_0$.
+
+Conclusion:
+
+* Test will be statistically significant if we reject $H_0$.
+* Otherwise, the test is not statistically significant.
+
+```{r, echo=FALSE}
+
+#ADF Test
+adf.test(res_m2_temp)
+
+```
+
+From the output, at significance level of 95%, we reject the Null Hypothesis as the p-value is 0.01 and which is less than 0.05. As the Null Hypothesis being that the series is not stationary, we can safely assume our time series under consideration to be stationary.
+
+Now that we have confirmed the stationarity, we will come up with probable values for non-seasonal parameters p and q using ACF and PACF plots.
+
+### ACF and PACF Plots
+
+```{r, echo=FALSE}
+
+#ste the frame
+par(mar=c(5,4,4,2), mfrow=c(1,2), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plot ACF
+acf(res_m2_temp, lag.max = 36, main = "ACF: After Removing Seasonality")
+
+#plot PACF
+pacf(res_m2_temp, lag.max = 36, main = "PACF: After Removing Seasonality")
+
+```
+
+From the above plot, we have just 1 significant lag in both ACF and PACF. So, from ACF we get the possible value for q as 1, and from PACF we get the possible value for p as 1 too.
+
+So, from ACF and PACF plots, the possible candidate model which we get is **SARIMA(1, 0, 1)X(0, 1, 1)_12**.
+
+Now, to identify other possible values for the parameters p and q, we will compute the Extended Auto-Correlation Function(EACF) matrix.
+
+### EACF Method
+
+The EACF method uses the fact that if the AR part of a mixed ARMA model is known, “filtering out” the autoregression from the observed time series results in a pure MA process that enjoys the cutoff property in its ACF.
+
+```{r, echo=FALSE}
+
+#compute EACF
+eacf(res_m2_temp)
+
+```
+
+From the above matrix, we get the vertex at point (0, 1). So, the possible values for p and q which we could consider are (0, 1), (0, 2) and (1, 2). Based on the values for p and q, the possible candidate models which we get from the EACF matrix are **SARIMA(0, 0, 1)X(0, 1, 1)_12**, **SARIMA(0, 0, 2)X(0, 1, 1)_12** and **SARIMA(1, 0, 2)X(0, 1, 1)_12**.
+
+### BIC Table
+
+Bayesian Information Criterion (BIC) or Schwartz’s Bayesian Criterion given as:
+$$BIC = − 2log (maximum likelihood) + klog (n)$$
+
+```{r, echo=FALSE}
+
+#set the frame
+par(mar=c(5,4,4,2), mfrow=c(1,1), las = 1, cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#compute the BIC table
+res = armasubsets(y=res_m2_temp, nar = 10, nma = 10, y.name = 'test', ar.method='ols')
+
+#plot the BIC table
+plot(res)
+
+```
+
+From the above BIC table, the values which get for p are 1, 5, 9 and 10. Similarly, the values which we get for q are 2, 4, 5, 9 and 10. Here would not be considering the p and q values of 9 and 10 as they will form very big models and violate the Principle of Parsimony.
+
+So, the possible candidate models from the BIC table would be **SARIMA(1, 0, 2)X(0, 1, 1)_12**, **SARIMA(1, 0, 4)X(0, 1, 1)_12**, **SARIMA(1, 0, 5)X(0, 1, 1)_12**, **SARIMA(5, 0, 2)X(0, 1, 1)_12**, **SARIMA(5, 0, 4)X(0, 1, 1)_12** and **SARIMA(5, 0, 5)X(0, 1, 1)_12**.
+
+## Proposed Candidate Models
+
+Now, considering the candidate models from ACF/PACF plots, EACF matrix and the BIC table, we get below models:
+
+* SARIMA(1,0,1)x(0,1,1)_12
+* SARIMA(0,0,1)x(0,1,1)_12
+* SARIMA(0,0,2)x(0,1,1)_12
+* SARIMA(1,0,2)x(0,1,1)_12
+* SARIMA(1,0,4)x(0,1,1)_12
+* SARIMA(1,0,5)x(0,1,1)_12
+* SARIMA(5,0,2)x(0,1,1)_12
+* SARIMA(5,0,4)x(0,1,1)_12
+* SARIMA(5,0,5)x(0,1,1)_12
+
+We will now perform multiple diagnostic checks to find the most optimal model. We will start by analysing the significance of non-seasonal parameters for the above models. As these parameters represent the Auto-Regressive and Moving-Average components, we will be able to identify and eliminate models which have insignificant components present. After this we will sort the models based on their AIC and BIC scores and select the ones having least AIC and BIC scores.
+
+After shortlisting the models, we will analyze the residuals for all the shortlisted models. Based on the results on this analysis, we will finalize the most optimal model and use it for forecasting the average Melbourne temperature.
+
+## Diagnostic Check - Parameter Estimation for Non-Seasonal Component
+
+Here, we will start by checking the significance of estimated parameters. For this we will be using Maximum Likelihood and the Conditional Sum of Squares method.
+
+### Parameter Estimation on proposed models
+
+1. For model SARIMA(1,0,1)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_101_css = arima(tempAvg,order=c(1,0,1),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_101_css)
+
+#fit the model using ML
+model_101_ml = arima(tempAvg,order=c(1,0,1),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_101_ml)
+
+```
+
+From the above output, as per CSS method, we have moving-average(MA) component as significant and the auto-regressive(AR) component as not significant at significance level of 95%. As per the ML method, both AR and MA components are insignificant.
+
+The above results suggest that this model is not optimal because as shown by ML and CSS method, we have at least 1 component which is not significant.
+
+2. For model SARIMA(0,0,1)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_001_css = arima(tempAvg,order=c(0,0,1),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_001_css)
+
+#fit the model using ML
+model_001_ml = arima(tempAvg,order=c(0,0,1),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_001_ml)
+
+```
+
+From the above output, as per CSS method, we have both the MA and AR components as significant. As per the ML method too, both the components are significant.
+
+The above results suggest that this model can be optimal as we have both the AR and MA components as significant at significance level of 95%.
+
+3. For model SARIMA(0,0,2)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_002_css = arima(tempAvg,order=c(0,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_002_css)
+
+#fit the model using ML
+model_002_ml = arima(tempAvg,order=c(0,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_002_ml)
+
+```
+
+This is an overfitted version of previous model. When we look at the output of test, we can see that both the ML and CSS test suggest that the second MA component is not significant at significance level of 95%.
+
+4. For model SARIMA(1,0,2)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_102_css = arima(tempAvg,order=c(1,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_102_css)
+
+#fit the model using ML
+model_102_ml = arima(tempAvg,order=c(1,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_102_ml)
+
+```
+
+As seen in the above output, as per the CSS method, we have AR(1) and MA(1) components to be significant. The MA(2) component is not significant. This also seems to be an overfitted version of the previous model, but it gives the AR component as significant at the significance level of 95%.
+
+5. For model SARIMA(1,0,4)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_104_css = arima(tempAvg,order=c(1,0,4),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_104_css)
+
+#fit the model using ML
+model_104_ml = arima(tempAvg,order=c(1,0,4),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_104_ml)
+
+```
+
+As seen in the first output which is as per the CSS method, we have MA(3) and MA(4) components which are not significant. We have the other components as significant.
+
+As per the ML method, we do not have any significant components.
+
+6. For model SARIMA(1,0,5)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_105_css = arima(tempAvg,order=c(1,0,5),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_105_css)
+
+#fit the model using ML
+model_105_ml = arima(tempAvg,order=c(1,0,5),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_105_ml)
+
+```
+
+This model is an over-fitted version of the previous model. As per the result from CSS method, MA(4) and MA(5) components are insignificant at significance level of 95%, which means adding more components over the previous model is not of much use.
+
+Looking at the second output which is as per the ML method, except of AR(1) component, we do not have any other significant components.
+
+7. For model SARIMA(5,0,2)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_502_css = arima(tempAvg,order=c(5,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_502_css)
+
+#fit the model using ML
+model_502_ml = arima(tempAvg,order=c(5,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_502_ml)
+
+```
+
+This is a big model which was suggested by BIC table. As seen in the output, we do not have any AR and MA components as significant. So, the above result suggests that adding new components does not add any significance to the model.
+
+8. For model SARIMA(5,0,4)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_504_css = arima(tempAvg,order=c(5,0,4),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_504_css)
+
+#fit the model using ML
+model_504_ml = arima(tempAvg,order=c(5,0,4),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_504_ml)
+
+```
+
+From the above output, in the results which we get using CSS method, except for AR(2) component, all other components are significant. This suggest a good model. We will decide if we should consider this model after sorting all the models based on AIC and BIC scores.
+
+9. For model SARIMA(5,0,5)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#fit the model using CSS
+model_505_css = arima(tempAvg,order=c(5,0,5),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_505_css)
+
+#fit the model using ML
+model_505_ml = arima(tempAvg,order=c(5,0,5),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_505_ml)
+
+```
+
+Looking at the results from CSS method, for MA(1) and MA(5) components, the test was not able to find any values. Except for AR(2) and the components which were failed to capture, we have all other components as significant.
+
+Now that we know the significance of components for all the candidate models, we will sort these models based on their AIC and BIC score.
+
+### AIC and BIC Sort
+
+We will first sort the models based on their AIC scores.
+
+```{r, echo=FALSE}
+
+#sort based on AIC values
+aic = sort.score(AIC(model_101_ml, model_001_ml, model_002_ml, model_102_ml, model_104_ml, model_105_ml,model_502_ml,model_504_ml,model_505_ml), score = "aic")
+
+#display the sorted models
+aic
+
+```
+
+Looking at the above output, models SARIMA(0,0,1)x(0,1,1)_12, SARIMA(1,0,1)x(0,1,1)_12 and SARIMA(0,0,2)x(0,1,1)_12 are the ones having lowest AIC score. Out of these models, we know from the parameter estimation that, we have all the components as significant for model SARIMA(0,0,1)x(0,1,1)_12. We will still be considering other models for residual analysis to check if we get satisfactory behavior of the residuals.
+
+We will now sort the models as per their BIC score and check if we get the same models.
+
+```{r, echo=FALSE}
+
+#sort based on BIC values
+bic = sort.score(BIC(model_101_ml, model_001_ml, model_002_ml, model_102_ml, model_104_ml, model_105_ml,model_502_ml,model_504_ml,model_505_ml), score = "bic")
+
+#display the sorted models
+bic
+
+```
+
+From the above output, we get same 3 models after sorting them by their BIC scores.
+
+We will now try over fitting few of the above models to see if get any new possible models which might be optimal.
+
+### Overfitting
+
+After performing the AIC and BIC sort, we usually try and overfit the selected models to check for more potential models. But here, we have already performed the parameter estimation for the overfitted version of selected models.
+
+So, now we will proceed ahead with the residual analysis for the models SARIMA(0,0,1)x(0,1,1)_12, SARIMA(1,0,1)x(0,1,1)_12 and SARIMA(0,0,2)x(0,1,1)_12.
+
+## Diagnostic Check - Residual Analysis for Non-Seasonal Component
+
+The purpose of residual analysis is to check if the residuals behave like white noise, i.e., they are normally distributed, they do not have any trend and there are no significant autocorrelations. For all the 3 models chosen in previous step, we will check for normality of the residuals using the Shapiro-Wilk test for normality.
+
+The Shapiro-Wilk test is used to test the normality of residuals. The hypothesis test is given as follows:
+
+**H0:** Residuals are normally distributed
+
+**HA:** Residuals are not normally distributed
+
+**Decision Rules:**
+
+Reject,
+
+* if p-value < 0.1 ( significance level)
+* if 90% CI of the parameter does not capture H0.
+
+Otherwise, fail to reject H0.
+
+**Conclusion:**
+
+Test will be statistically significant if we reject H0. Otherwise, the test is not statistically significant.
+
+Next, we will check if there is any trend and if there exist any significant autocorrelation.
+
+Here, we will be using the residuals of the model fitted using CSS method. This is because, for the 3 chosen models, we referred to the significance of co-efficients obtained by the CSS method.
+
+```{r, echo=FALSE}
+
+residual.analysis <- function(model, std = TRUE,start = 2, class = c("ARIMA","GARCH","ARMA-GARCH")[1]){
+  # If you have an output from arima() function use class = "ARIMA"
+  # If you have an output from garch() function use class = "GARCH". 
+  # Please note that you should use tseries package to be able to run this function for GARCH models.
+  # If you have an output from ugarchfit() function use class = "ARMA-GARCH"
+  library(TSA)
+  library(FitAR)
+  if (class == "ARIMA"){
+    if (std == TRUE){
+      res.model = rstandard(model)
+    }else{
+      res.model = rstandard(model)
+    }
+  }else if (class == "GARCH"){
+    res.model = model$residuals[start:model$n.used]
+  }else if (class == "ARMA-GARCH"){
+      res.model = model@fit$residuals
+  }else {
+    stop("The argument 'class' must be either 'ARIMA' or 'GARCH' ")
+  }
+  par(mfrow=c(3,2), las = 1)
+  plot(res.model,type='o', col = "red",
+       ylab='Standardised residuals',
+       main="Time series plot of standardised residuals")
+  abline(h=0, col = "blue")
+  hist(res.model, main="Histogram of standardised residuals")
+  acf(res.model, main="ACF of standardised residuals", lag.max = 36)
+  pacf(res.model, main="PACF of standardised residuals", lag.max = 36)
+  qqnorm(res.model, main="QQ plot of standardised residuals", col = "red")
+  qqline(res.model, col = "blue")
+  print(shapiro.test(res.model))
+  k=0
+  LBQPlot(res.model, length(model$residuals)-1, StartLag = k + 1, k = 0, SquaredQ = FALSE)
+  
+}
+```
+
+### For model SARIMA(0,0,1)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#residual analysis for model SARIMA(0,0,1)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_001_css, class = "ARIMA")
+
+```
+
+Looking at output from the Shapiro-Wilk normality test, with p-value = 0.01019 and significance level of 90%, we fail to reject the hypothesis, which means that the residuals are normally distributed.
+
+Looking at the time series plot, the values are fluctuating along the constant mean of zero and are not showing any trend. Looking at the histogram and the qqplot, we see that the residuals are normally distributed. Both ACF and PACF plots demonstrate the behaviour of white noise. And, when we finally look at the Ljung Box test output, we can see that we do not have any point below the confidence interval, which means there is no significant auto-correlation present in the residuals.
+
+All these points support this model as an optimal model.
+
+### For model SARIMA(0,0,2)x(0,1,1)_12
+
+```{r, echo=FALSE}
+
+#residual analysis for model SARIMA(0,0,2)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_002_css, class = "ARIMA")
+
+```
+
+Looking at output from the Shapiro-Wilk normality test, with p-value = 0.01025 and significance level of 90%, we fail to reject the hypothesis, which means that the residuals are normally distributed.
+
+Looking at the time series plot, the values are fluctuating along the constant mean of zero and are not showing any trend. Looking at the histogram and the qqplot, we see that the residuals are normally distributed. Both ACF and PACF plots demonstrate the behaviour of white noise. And, when we finally look at the Ljung Box test output, we can see that we do not have any point below the confidence interval, which means there is no significant auto-correlation present in the residuals.
+
+All these points support this model too as an optimal model.
+
+### For model SARIMA(1,0,1)x(0,1,1)_12
+
+Figure 12:
+```{r, echo=FALSE}
+
+#residual analysis for model SARIMA(1,0,1)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_101_css, class = "ARIMA")
+
+```
+
+Looking at output from the Shapiro-Wilk normality test, with p-value = 0.007745 and significance level of 90%, we reject the hypothesis, which means that the residuals are not normally distributed.
+
+Looking at the time series plot, the values are fluctuating along the constant mean of zero and are not showing any trend. Looking at the histogram and the qqplot, we see that the residuals are normally distributed. But as per the Shapiro-Wilk test, this normality is not significant. Both ACF and PACF plots demonstrate the behaviour of white noise. And, when we finally look at the Ljung Box test output, we can see that we do have few points below the confidence interval, which means there is significant auto-correlation present in the residuals.
+
+All these points do not support this model to be an optimal one.
+
+So, from the above analysis, we have 2 models which are optimal, viz., SARIMA(0,0,1)x(0,1,1)_12 and SARIMA(0,0,2)x(0,1,1)_12. Now, we had seen that in model SARIMA(0,0,2)x(0,1,1)_12, MA(2) component was not significant. Also, as per the Principle of Parsimony, we go for the smaller model.
+
+So, we will be choosing SARIMA(0,0,1)x(0,1,1)_12 model as the most optimal model and using this to forecast the average Melbourne temperature.
+
+# Forecasting
+
+Having finalized SARIMA(0,0,1)x(0,1,1)_12 model, we will use this model to forecast the average Melbourne temperature for next 10 months.
+
+```{r, echo=FALSE}
+
+#fitting the model
+fit = Arima(tempAvg, order=c(0,0,1), seasonal = list(order=c(0,1,1), period = 12), method = "CSS")
+
+#predicting the next 10 values
+temp_forecast = forecast(fit, h = 10)
+
+#presenting the forecast in a table form
+temp_forecast
+
+```
+
+Above table displays the forecasted values for next 10 months. We can also see the 80% and 95% confidence interval for this forecast. This result would be more intuitive once we plot it along with the original time series.
+
+```{r, echo=FALSE}
+
+#setting the frame
+par(mar=c(5,4,4,2), las = 1,  cex.main = 1, cex.lab = 1, cex.axis = 1)
+
+#plotting the forecast
+plot(temp_forecast, type="o", lwd = 1.5, col = "red",
+     xlab = "Years",
+     ylab = "Average Melbourne Temperature (in Degree Celsius)",
+     main = "Average Melbourne Temperature with 10 month Forecasts")
+
+#displaying the legend
+legend("bottomleft", lty = 1, bty = "n" , col = c("red", "blue"), cex = 0.6,
+      legend = c("Original Time Series", "10 months Forecast"))
+
+```
+
+From the above output, our model captured the seasonality very well. It is also doing a fair job in forecasting future values which follow the pattern of the original time series.
+
+# Conclusion
+
+1. We were able to determine which modelling technique was to be used. As there is no specific statistic test which tells us about the model to choose out of stochastic or deterministic models, we chose stochastic model as it is better known to capture the seasonality and randomness for any time series.
+
+2. Next, we were able to successfully handle the seasonality and define the seasonal parameters P, D and Q. After this, we were also able to model the non-seasonal part.
+
+3. After modelling the seasonal and non-seasonal part, we ended up with few possible models. Using the parameter estimation and residual analysis, we were able to find out the most optimal model.
+
+4. Using this model, we were successfully able to forecast the average Melbourne temperatures for next 10 months.
+
+5. The forecast followed the pattern of the original time series well and also displayed 80% and 95% confidence interval for the predicted temperature values.
+
+# Appendix
+
+```{r getlabels, echo = FALSE}
+
+labs = knitr::all_labels()
+labs = labs[!labs %in% c("setup", "toc", "getlabels", "allcode")]
+
+```
+
+```{r allcode, ref.label = labs, echo = T,  eval = FALSE}
+
+#--------------------
+  
+#A. R code of residual.analysis()
+
+residual.analysis <- function(model, std = TRUE,start = 2, class = c("ARIMA","GARCH","ARMA-GARCH")[1]){
+  # If you have an output from arima() function use class = "ARIMA"
+  # If you have an output from garch() function use class = "GARCH". 
+  # Please note that you should use tseries package to be able to run this function for GARCH models.
+  # If you have an output from ugarchfit() function use class = "ARMA-GARCH"
+  library(TSA)
+  library(FitAR)
+  if (class == "ARIMA"){
+    if (std == TRUE){
+      res.model = rstandard(model)
+    }else{
+      res.model = rstandard(model)
+    }
+  }else if (class == "GARCH"){
+    res.model = model$residuals[start:model$n.used]
+  }else if (class == "ARMA-GARCH"){
+      res.model = model@fit$residuals
+  }else {
+    stop("The argument 'class' must be either 'ARIMA' or 'GARCH' ")
+  }
+  par(mfrow=c(3,2), las = 1)
+  plot(res.model,type='o', col = "red",
+       ylab='Standardised residuals',
+       main="Time series plot of standardised residuals")
+  abline(h=0, col = "blue")
+  hist(res.model, main="Histogram of standardised residuals")
+  acf(res.model, main="ACF of standardised residuals", lag.max = 36)
+  pacf(res.model, main="PACF of standardised residuals", lag.max = 36)
+  qqnorm(res.model, main="QQ plot of standardised residuals", col = "red")
+  qqline(res.model, col = "blue")
+  print(shapiro.test(res.model))
+  k=0
+  LBQPlot(res.model, length(model$residuals)-1, StartLag = k + 1, k = 0, SquaredQ = FALSE)
+}
+
+#--------------------
+
+#B. R code for importing packages and user-defined function sort.score()
+
+library(dplyr)
+library(tidyselect)
+library(knitr)
+library(timeSeries)
+library(fUnitRoots)
+library(TSA)
+library(lmtest)
+library(forecast)
+library(tseries)
+library(FitAR)
+library(FSAdata)
+
+source('sort.score.R')
+  
+#--------------------
+  
+#1. R Code for Sample of records with calculated average temperature
+
+#import data
+melbTemp <- read.csv("TempWorld2.csv")
+
+#compute mean
+melbTemp$MelbourneAvg <- (melbTemp$Melbournemax + melbTemp$MelbourneMin)/2
+
+#display computed mean
+head(melbTemp[, c('Date', 'MelbourneMin', 'Melbournemax', 'MelbourneAvg')])
+
+#--------------------
+
+#2. R Code for Time series data for Average Melbourne temperatures
+
+#convert to time series
+tempAvg <- ts(as.vector(melbTemp$MelbourneAvg), start=2000, frequency = 12)
+
+#display time series data
+tempAvg
+
+#--------------------
+
+#3. R Code for Time series plot for Average Melbourne temperatures
+
+#set the frame
+par(mfrow = c(1,1))
+
+#plot time series
+plot(tempAvg, type="o", col = "red", lwd = 1.5,
+     xlab = "Years",
+     ylab = "Average Melbourne Temperature (in Degree Celsius)", 
+     main = "Time Series plot of Average Melbourne Temperature (with months as points)")
+points(y = tempAvg, x = time(tempAvg), pch = as.vector(season(tempAvg)))
+
+#--------------------
+
+#4. R Code for ACF and PACF plot for Average Melbourne temperatures
+
+#set the frame
+par(mfrow = c(1,2))
+
+#plot ACF
+acf(tempAvg, main = "ACF: Average Melbourne Temperature", lag.max = 36)
+
+#plot PACF
+pacf(tempAvg, main = "PACF: Average Melbourne Temperature", lag.max = 36)
+
+#--------------------
+
+#5. R Code for Scatter plot for Average Melbourne temperatures
+
+#set the frame
+par(mfrow = c(1,1))
+
+#plot scatter plot
+plot(y = tempAvg, x = zlag(tempAvg), col = "red",
+     xlab = 'Lagged Average Melbourne Temperature (in Degree Celsius)',
+     ylab = 'Average Melbourne Temperature (in Degree Celsius)',
+     main = 'Scatter plot of Average Melbourne Temperature (in Degree Celsius)')
+	
+#Reading the average temperature data into y
+y = tempAvg          
+
+#Generating first lag of the average temperature series
+x = zlag(tempAvg)  
+
+#Creating an index to get rid of the first NA value in x
+index = 2:length(x)  
+
+#Calculating the correlation between numerical values in x and y
+cor(y[index],x[index])
+
+#--------------------
+
+#6. R Code for Summary for fitted deterministic seasonal model
+
+#identify season
+month. = season(tempAvg) 
+
+#fit the model
+seasonal_model = lm( tempAvg ~ month.-1)
+
+#print model summary
+summary(seasonal_model)
+
+#--------------------
+
+#7. R Code for Fitted deterministic seasonal model over Average Melbourne Temperature Time Series
+
+#set the frame
+par(mfrow = c(1,1))
+
+#fit the seasonal model
+plot(ts(fitted(seasonal_model), freq=12, start=2000),
+        xlab = 'Years',
+        ylab = 'Average Melbourne Temperature (in Degree Celsius)',
+        type = 'l',
+        ylim = range(c(fitted(seasonal_model), tempAvg)),
+        main = "Fitted Seasonal Model to Average Melbourne Temperature Time Series",
+     col = "blue",  lwd = 1.5)
+points(tempAvg)
+
+#--------------------
+
+#8. R Code for Time Series plot of residuals of Average Melbourne Temperature
+
+#perform 1st differencing
+m1_temp = arima(tempAvg, order=c(0,0,0), seasonal=list(order=c(0,1,0), period = 12))
+
+#extract residuals
+res_m1_temp = residuals(m1_temp);  
+
+#set the frame
+par(mfrow = c(1,1))
+
+#plot the time series for residuals
+plot(res_m1_temp, type="o", col = "red", lwd = 1.5,
+     xlab = 'Years',
+     ylab = 'Residuals',
+     main = "Time Series plot for residuals of Average Melbourne Temperature")
+
+#--------------------
+
+#9. R Code for ACF and PACF plot for Residuals of Average Melbourne temperatures
+
+#set the frame
+par(mfrow = c(1,2))
+
+#plot ACF
+acf(res_m1_temp, lag.max = 36, main = "ACF: Residuals of Average Melbourne Temperature")
+
+#plot PACF
+pacf(res_m1_temp, lag.max = 36, main = "PACF: Residuals of Average Melbourne Temperature")
+
+#--------------------
+
+#10. R Code for Time series plot of average Melbourne temperature after removing seasonality
+
+#apply seasonal (0, 1, 1) model to capture seasonality
+m2_temp = arima(tempAvg, order=c(0,0,0), seasonal=list(order=c(0,1,1), period = 12))
+
+#capture remaining components other than seasonality
+res_m2_temp = residuals(m2_temp);  
+
+#set the frame
+par(mfrow=c(1,1))
+
+#plot the time series for remaining components
+plot(res_m2_temp, type="o", col = "red", lwd = 1.5,
+     xlab = 'Years',
+     ylab = 'Residuals',
+     main = "Time series plot of Average Melbourne Temperature after Removing Seasonality")
+
+#--------------------
+
+#11. R Code for ACF and PACF plot for average Melbourne temperature after removing seasonality
+
+#set the frame
+par(mfrow=c(1,2))
+
+#plot ACF
+acf(res_m2_temp, lag.max = 36, main = "ACF: After Removing Seasonality")
+
+#plot PACF
+pacf(res_m2_temp, lag.max = 36, main = "PACF: After Removing Seasonality")
+
+#--------------------
+
+#12. R Code for Results of Augmented Dickey-Fuller Test
+
+#ADF Test
+adf.test(res_m2_temp)
+
+#--------------------
+
+#13. R Code for ACF and PACF plot for average Melbourne temperature after removing seasonality
+
+#set the frame
+par(mfrow=c(1,2))
+
+#plot ACF
+acf(res_m2_temp, lag.max = 36, main = "ACF: After Removing Seasonality")
+
+#plot PACF
+pacf(res_m2_temp, lag.max = 36, main = "PACF: After Removing Seasonality")
+
+#--------------------
+
+#14. R Code for EACF matrix for average Melbourne temperature after removing seasonality
+
+#compute EACF
+eacf(res_m2_temp)
+
+#--------------------
+
+#15. R Code for Bayesian Information Criterion table for average Melbourne temperature after removing seasonality
+
+#set the frame
+par(mfrow=c(1,1))
+
+#compute the BIC table
+res = armasubsets(y=res_m2_temp, nar = 10, nma = 10, y.name = 'test', ar.method='ols')
+
+#plot the BIC table
+plot(res)
+
+#--------------------
+
+#16. R Code for Coefficients test for model SARIMA(1,0,1)x(0,1,1)_12
+
+#fit the model using CSS
+model_101_css = arima(tempAvg,order=c(1,0,1),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_101_css)
+
+#fit the model using ML
+model_101_ml = arima(tempAvg,order=c(1,0,1),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_101_ml)
+
+#--------------------
+
+#17. R Code for Coefficients test for model SARIMA(0,0,1)x(0,1,1)_12
+
+#fit the model using CSS
+model_001_css = arima(tempAvg,order=c(0,0,1),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_001_css)
+
+#fit the model using ML
+model_001_ml = arima(tempAvg,order=c(0,0,1),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_001_ml)
+
+#--------------------
+
+#18. R Code for Coefficients test for model SARIMA(0,0,2)x(0,1,1)_12
+
+#fit the model using CSS
+model_002_css = arima(tempAvg,order=c(0,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_002_css)
+
+#fit the model using ML
+model_002_ml = arima(tempAvg,order=c(0,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_002_ml)
+
+#--------------------
+
+#19. R Code for Coefficients test for model SARIMA(1,0,2)x(0,1,1)_12
+
+#fit the model using CSS
+model_102_css = arima(tempAvg,order=c(1,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_102_css)
+
+#fit the model using ML
+model_102_ml = arima(tempAvg,order=c(1,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_102_ml)
+
+#--------------------
+
+#20. R Code for Coefficients test for model SARIMA(1,0,4)x(0,1,1)_12
+
+#fit the model using CSS
+model_104_css = arima(tempAvg,order=c(1,0,4),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_104_css)
+
+#fit the model using ML
+model_104_ml = arima(tempAvg,order=c(1,0,4),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_104_ml)
+
+#--------------------
+
+#21. R Code for Coefficients test for model SARIMA(1,0,5)x(0,1,1)_12
+
+#fit the model using CSS
+model_105_css = arima(tempAvg,order=c(1,0,5),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_105_css)
+
+#fit the model using ML
+model_105_ml = arima(tempAvg,order=c(1,0,5),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_105_ml)
+
+#--------------------
+
+#22. R Code for Coefficients test for model SARIMA(5,0,2)x(0,1,1)_12
+
+#fit the model using CSS
+model_502_css = arima(tempAvg,order=c(5,0,2),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_502_css)
+
+#fit the model using ML
+model_502_ml = arima(tempAvg,order=c(5,0,2),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_502_ml)
+
+#--------------------
+
+#23. R Code for Coefficients test for model SARIMA(5,0,4)x(0,1,1)_12
+
+#fit the model using CSS
+model_504_css = arima(tempAvg,order=c(5,0,4),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_504_css)
+
+#fit the model using ML
+model_504_ml = arima(tempAvg,order=c(5,0,4),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_504_ml)
+
+#--------------------
+
+#24. R Code for Coefficients test for model SARIMA(5,0,5)x(0,1,1)_12
+
+#fit the model using CSS
+model_505_css = arima(tempAvg,order=c(5,0,5),seasonal=list(order=c(0,1,1), period=12),method = "CSS")
+
+#perform co-efficients test
+coeftest(model_505_css)
+
+#fit the model using ML
+model_505_ml = arima(tempAvg,order=c(5,0,5),seasonal=list(order=c(0,1,1), period=12),method = "ML")
+
+#perform co-efficients test
+coeftest(model_505_ml)
+
+#--------------------
+
+#25. R Code for Models sorted as per AIC scores
+
+#sort based on AIC values
+aic = sort.score(AIC(model_101_ml, model_001_ml, model_002_ml, model_102_ml, model_104_ml, model_105_ml,model_502_ml,model_504_ml,model_505_ml), score = "aic")
+
+#display the sorted models
+aic
+
+#--------------------
+
+#26. R Code for Models sorted as per BIC scores
+
+#sort based on BIC values
+bic = sort.score(BIC(model_101_ml, model_001_ml, model_002_ml, model_102_ml, model_104_ml, model_105_ml,model_502_ml,model_504_ml,model_505_ml), score = "bic")
+
+#display the sorted models
+bic
+
+#--------------------
+
+#27. R Code for Residual Analysis for model SARIMA(0,0,1)x(0,1,1)_12
+
+#residual analysis for model SARIMA(0,0,1)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_001_css, class = "ARIMA")
+
+#--------------------
+
+#28. R Code for Residual Analysis for model SARIMA(0,0,2)x(0,1,1)_12
+
+#residual analysis for model SARIMA(0,0,2)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_002_css, class = "ARIMA")
+
+#--------------------
+
+#29. R Code for Residual Analysis for model SARIMA(1,0,1)x(0,1,1)_12
+
+#residual analysis for model SARIMA(1,0,1)x(0,1,1)_12
+#Refer Appendix A for function definition of residual.analysis()
+residual.analysis(model = model_101_css, class = "ARIMA")
+
+#--------------------
+
+#30. R Code for 10 months forecast for average Melbourne temperatures
+
+#fitting the model
+fit = Arima(tempAvg, order=c(0,0,1), seasonal = list(order=c(0,1,1), period = 12), method = "CSS")
+
+#predicting the next 10 values
+temp_forecast = forecast(fit, h = 10)
+
+#presenting the forecast in a table form
+temp_forecast
+
+#--------------------
+
+#31. R Code for Time series plot of 10 months forecast for average Melbourne temperatures
+
+#set the frame
+par(mfrow=c(1,1))
+
+#plotting the forecast
+plot(temp_forecast, type="o", lwd = 1.5, col = "red",
+     xlab = "Years",
+     ylab = "Average Melbourne Temperature (in Degree Celsius)",
+     main = "Average Melbourne Temperature with 10 month Forecasts")
+
+#displaying the legend
+legend("bottomleft", lty = 1, bty = "n" , col = c("red", "blue"), cex = 0.6,
+      legend = c("Original Time Series", "10 months Forecast"))
+
+#--------------------
+
+```
+
+
+# References
+
+1. MATH1318 Time Series Analysis notes prepared by Dr. Haydar Demirha and Zeynep Kalaylioglu
+2. Canvas, n.d., Modules, viewed on 16th May 2020, <https://rmit.instructure.com/courses/67182/modules>
+3. Time Series Datasets (2013) by M. Forster and Rachel Passmore at CensusAtSchool, NZ, viewed on 15th May 2020, <https://new.censusatschool.org.nz/wp-content/uploads/2013/02/TimeSeriesDatasets_130207.zip>
+
+<br>
+<br>
