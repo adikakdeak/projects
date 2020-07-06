@@ -6,7 +6,7 @@ Summary:
 - Finalized the model by referring to the results of diagnostic checks. Using this model, forecasted temperature values for next 10 months. 
 
 Input File:
-TempWorld2.csv
+- TempWorld2.csv
 
 Code.Rmd
 This file contains all the R codes.
